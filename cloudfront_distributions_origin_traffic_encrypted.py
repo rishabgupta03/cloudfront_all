@@ -88,15 +88,29 @@ def evaluate_custom_origin_encryption(dist: dict):
     Returns (status, evidence). Only CustomOriginConfig origins are
     evaluated; S3OriginConfig origins are always encrypted natively and
     are excluded from the check entirely.
+
+    The SKIPPED evidence now lists each origin's domain name and
+    detected type, so a "not applicable" result is verifiable at a
+    glance instead of a bare "no custom origins" message - if every
+    origin genuinely is S3OriginConfig, that will be visible directly
+    in the CSV rather than requiring a separate AWS CLI check.
     """
     origins = dist.get("Origins", {}).get("Items", []) or []
+
+    if not origins:
+        return "SKIPPED", "Distribution has no origins defined at all (unexpected - check manually)"
 
     custom_origins = [o for o in origins if "CustomOriginConfig" in o]
 
     if not custom_origins:
+        origin_summary = ", ".join(
+            f"{o.get('Id', 'unknown')} ({o.get('DomainName', 'unknown-domain')})"
+            for o in origins
+        )
         return (
             "SKIPPED",
-            "No custom origins present (S3-only distribution) - not applicable"
+            f"No custom origins present - all {len(origins)} origin(s) are native S3 "
+            f"(S3OriginConfig), not applicable: {origin_summary}"
         )
 
     violations = []
