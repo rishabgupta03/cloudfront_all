@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
 Control: CloudFront Distribution Has a Default Root Object Configured
-------------------------------------------------------------------------
+--------------------------------------------------------------------
 CloudFront is a global service (single API endpoint - us-east-1).
 This script lists every distribution in the account and checks whether
-DefaultRootObject is set to a non-empty value (e.g. index.html).
+it has a DefaultRootObject configured (e.g. index.html), so requests
+to the root URL don't expose bucket listings or unhandled errors.
 """
 
 import boto3
@@ -43,8 +44,9 @@ def get_account_id(session):
 # ==================================================
 # REGIONS
 # ==================================================
-# CloudFront is global - single API endpoint. Kept as a no-op function so
-# the script structure stays consistent with regional controls.
+# Not applicable in the usual sense - CloudFront is a global service with
+# a single API endpoint. Kept as a no-op function so the script structure
+# stays consistent with regional controls.
 def get_regions(session):
     return [GLOBAL_REGION]
 
@@ -66,18 +68,19 @@ def classify_error(e: ClientError) -> str:
     return reasons.get(code, f"Skipped due to error [{code}]")
 
 
-def evaluate_default_root_object(dist: dict):
+def evaluate_root_object(dist: dict):
     """
-    Returns (status, evidence) based on the DefaultRootObject field.
-    Compliant     -> non-empty value set (e.g. index.html)
-    Non-compliant -> empty string ("" means not configured)
+    Returns (status, evidence) based on the DefaultRootObject field on the
+    distribution summary.
+    Compliant     -> DefaultRootObject is set
+    Non-compliant -> DefaultRootObject is empty/missing
     """
-    default_root_object = dist.get("DefaultRootObject", "")
+    root_object = dist.get("DefaultRootObject", "")
 
-    if default_root_object:
-        return "COMPLIANT", f"Default root object configured: {default_root_object}"
+    if root_object:
+        return "COMPLIANT", f"Default root object configured: {root_object}"
 
-    return "NON_COMPLIANT", "Default root object is not configured (empty value)"
+    return "NON_COMPLIANT", "No default root object configured for this distribution"
 
 
 # ==================================================
@@ -118,12 +121,14 @@ def check_control(session):
         dist_id = dist.get("Id", "N/A")
         dist_arn = dist.get("ARN", "N/A")
 
-        status, evidence = evaluate_default_root_object(dist)
+        status, evidence = evaluate_root_object(dist)
 
         if status == "COMPLIANT":
             compliant += 1
-        else:
+        elif status == "NON_COMPLIANT":
             non_compliant += 1
+        else:
+            skipped += 1
 
         results.append({
             "Region": "global",
@@ -140,7 +145,7 @@ def check_control(session):
 # CSV
 # ==================================================
 def write_csv(results, account_id):
-    filename = f"cloudfront_default_root_object_{account_id}.csv"
+    filename = f"cloudfront_distributions_default_root_object_{account_id}.csv"
     fieldnames = ["Account", "Region", "DistributionId", "DistributionArn", "Status", "Evidence"]
 
     with open(filename, "w", newline="") as f:
